@@ -69,8 +69,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Forward setup to platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     
-    # Register services
-    await async_setup_services(hass, entry.entry_id)
+    # Register services (only on first entry; handlers resolve coordinator dynamically)
+    await async_setup_services(hass)
     
     # Register options update listener
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
@@ -85,6 +85,18 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
 
+        if not hass.data[DOMAIN]:
+            for service in (
+                SERVICE_OPEN_SHUTTER,
+                SERVICE_CLOSE_SHUTTER,
+                SERVICE_STOP_SHUTTER,
+                SERVICE_SET_POSITION,
+                SERVICE_OPEN_ALL,
+                SERVICE_CLOSE_ALL,
+                SERVICE_STOP_ALL,
+            ):
+                hass.services.async_remove(DOMAIN, service)
+
     return unload_ok
 
 
@@ -93,38 +105,32 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-async def async_setup_services(hass: HomeAssistant, entry_id: str) -> None:
-    """Set up services for Mediola Shutters."""
-    
+async def async_setup_services(hass: HomeAssistant) -> None:
+    """Set up services for Mediola Shutters. Called only when the first entry is loaded."""
+    if hass.services.has_service(DOMAIN, SERVICE_OPEN_SHUTTER):
+        return
+
     async def handle_open_shutter(call: ServiceCall) -> None:
-        """Handle open shutter service call."""
         entity_id = call.data["entity_id"]
-        # Call the cover.open_cover service
         await hass.services.async_call(
             "cover", "open_cover", {"entity_id": entity_id}, blocking=True
         )
 
     async def handle_close_shutter(call: ServiceCall) -> None:
-        """Handle close shutter service call."""
         entity_id = call.data["entity_id"]
-        # Call the cover.close_cover service
         await hass.services.async_call(
             "cover", "close_cover", {"entity_id": entity_id}, blocking=True
         )
 
     async def handle_stop_shutter(call: ServiceCall) -> None:
-        """Handle stop shutter service call."""
         entity_id = call.data["entity_id"]
-        # Call the cover.stop_cover service
         await hass.services.async_call(
             "cover", "stop_cover", {"entity_id": entity_id}, blocking=True
         )
 
     async def handle_set_position(call: ServiceCall) -> None:
-        """Handle set position service call."""
         entity_id = call.data["entity_id"]
         position = call.data["position"]
-        # Call the cover.set_cover_position service
         await hass.services.async_call(
             "cover",
             "set_cover_position",
@@ -133,70 +139,53 @@ async def async_setup_services(hass: HomeAssistant, entry_id: str) -> None:
         )
 
     async def handle_open_all(call: ServiceCall) -> None:
-        """Handle open all shutters service call."""
-        coordinator = hass.data[DOMAIN][entry_id]
-        for shutter in coordinator.data:
-            sid = shutter.get("sid")
-            adr = shutter.get("adr")
-            device_type = shutter.get("type")
-            await hass.async_add_executor_job(
-                coordinator.api.open_shutter, device_type, sid, adr
-            )
-        await coordinator.async_request_refresh()
+        for coordinator in hass.data[DOMAIN].values():
+            for shutter in coordinator.data:
+                await hass.async_add_executor_job(
+                    coordinator.api.open_shutter,
+                    shutter.get("type"),
+                    shutter.get("sid"),
+                    shutter.get("adr"),
+                )
+            await coordinator.async_request_refresh()
 
     async def handle_close_all(call: ServiceCall) -> None:
-        """Handle close all shutters service call."""
-        coordinator = hass.data[DOMAIN][entry_id]
-        for shutter in coordinator.data:
-            sid = shutter.get("sid")
-            adr = shutter.get("adr")
-            device_type = shutter.get("type")
-            await hass.async_add_executor_job(
-                coordinator.api.close_shutter, device_type, sid, adr
-            )
-        await coordinator.async_request_refresh()
+        for coordinator in hass.data[DOMAIN].values():
+            for shutter in coordinator.data:
+                await hass.async_add_executor_job(
+                    coordinator.api.close_shutter,
+                    shutter.get("type"),
+                    shutter.get("sid"),
+                    shutter.get("adr"),
+                )
+            await coordinator.async_request_refresh()
 
     async def handle_stop_all(call: ServiceCall) -> None:
-        """Handle stop all shutters service call."""
-        coordinator = hass.data[DOMAIN][entry_id]
-        for shutter in coordinator.data:
-            sid = shutter.get("sid")
-            adr = shutter.get("adr")
-            device_type = shutter.get("type")
-            await hass.async_add_executor_job(
-                coordinator.api.stop_shutter, device_type, sid, adr
-            )
-        await coordinator.async_request_refresh()
+        for coordinator in hass.data[DOMAIN].values():
+            for shutter in coordinator.data:
+                await hass.async_add_executor_job(
+                    coordinator.api.stop_shutter,
+                    shutter.get("type"),
+                    shutter.get("sid"),
+                    shutter.get("adr"),
+                )
+            await coordinator.async_request_refresh()
 
-    # Register services only if not already registered
-    if not hass.services.has_service(DOMAIN, SERVICE_OPEN_SHUTTER):
-        hass.services.async_register(
-            DOMAIN, SERVICE_OPEN_SHUTTER, handle_open_shutter, schema=SERVICE_SHUTTER_SCHEMA
-        )
-
-    if not hass.services.has_service(DOMAIN, SERVICE_CLOSE_SHUTTER):
-        hass.services.async_register(
-            DOMAIN, SERVICE_CLOSE_SHUTTER, handle_close_shutter, schema=SERVICE_SHUTTER_SCHEMA
-        )
-
-    if not hass.services.has_service(DOMAIN, SERVICE_STOP_SHUTTER):
-        hass.services.async_register(
-            DOMAIN, SERVICE_STOP_SHUTTER, handle_stop_shutter, schema=SERVICE_SHUTTER_SCHEMA
-        )
-
-    if not hass.services.has_service(DOMAIN, SERVICE_SET_POSITION):
-        hass.services.async_register(
-            DOMAIN, SERVICE_SET_POSITION, handle_set_position, schema=SERVICE_SET_POSITION_SCHEMA
-        )
-
-    if not hass.services.has_service(DOMAIN, SERVICE_OPEN_ALL):
-        hass.services.async_register(DOMAIN, SERVICE_OPEN_ALL, handle_open_all)
-
-    if not hass.services.has_service(DOMAIN, SERVICE_CLOSE_ALL):
-        hass.services.async_register(DOMAIN, SERVICE_CLOSE_ALL, handle_close_all)
-
-    if not hass.services.has_service(DOMAIN, SERVICE_STOP_ALL):
-        hass.services.async_register(DOMAIN, SERVICE_STOP_ALL, handle_stop_all)
+    hass.services.async_register(
+        DOMAIN, SERVICE_OPEN_SHUTTER, handle_open_shutter, schema=SERVICE_SHUTTER_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_CLOSE_SHUTTER, handle_close_shutter, schema=SERVICE_SHUTTER_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_STOP_SHUTTER, handle_stop_shutter, schema=SERVICE_SHUTTER_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_SET_POSITION, handle_set_position, schema=SERVICE_SET_POSITION_SCHEMA
+    )
+    hass.services.async_register(DOMAIN, SERVICE_OPEN_ALL, handle_open_all)
+    hass.services.async_register(DOMAIN, SERVICE_CLOSE_ALL, handle_close_all)
+    hass.services.async_register(DOMAIN, SERVICE_STOP_ALL, handle_stop_all)
 
 
 class MediolaDataUpdateCoordinator(DataUpdateCoordinator):
