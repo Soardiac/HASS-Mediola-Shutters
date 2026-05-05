@@ -2,12 +2,9 @@
 import logging
 from datetime import timedelta
 
-import voluptuous as vol
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL, DOMAIN
@@ -18,27 +15,9 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.COVER, Platform.SENSOR, Platform.BINARY_SENSOR]
 
 # Service names
-SERVICE_OPEN_SHUTTER = "open_shutter"
-SERVICE_CLOSE_SHUTTER = "close_shutter"
-SERVICE_STOP_SHUTTER = "stop_shutter"
-SERVICE_SET_POSITION = "set_shutter_position"
 SERVICE_OPEN_ALL = "open_all_shutters"
 SERVICE_CLOSE_ALL = "close_all_shutters"
 SERVICE_STOP_ALL = "stop_all_shutters"
-
-# Service schemas
-SERVICE_SHUTTER_SCHEMA = vol.Schema(
-    {
-        vol.Required("entity_id"): cv.entity_id,
-    }
-)
-
-SERVICE_SET_POSITION_SCHEMA = vol.Schema(
-    {
-        vol.Required("entity_id"): cv.entity_id,
-        vol.Required("position"): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
-    }
-)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -86,15 +65,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN].pop(entry.entry_id)
 
         if not hass.data[DOMAIN]:
-            for service in (
-                SERVICE_OPEN_SHUTTER,
-                SERVICE_CLOSE_SHUTTER,
-                SERVICE_STOP_SHUTTER,
-                SERVICE_SET_POSITION,
-                SERVICE_OPEN_ALL,
-                SERVICE_CLOSE_ALL,
-                SERVICE_STOP_ALL,
-            ):
+            for service in (SERVICE_OPEN_ALL, SERVICE_CLOSE_ALL, SERVICE_STOP_ALL):
                 hass.services.async_remove(DOMAIN, service)
 
     return unload_ok
@@ -107,36 +78,8 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 async def async_setup_services(hass: HomeAssistant) -> None:
     """Set up services for Mediola Shutters. Called only when the first entry is loaded."""
-    if hass.services.has_service(DOMAIN, SERVICE_OPEN_SHUTTER):
+    if hass.services.has_service(DOMAIN, SERVICE_OPEN_ALL):
         return
-
-    async def handle_open_shutter(call: ServiceCall) -> None:
-        entity_id = call.data["entity_id"]
-        await hass.services.async_call(
-            "cover", "open_cover", {"entity_id": entity_id}, blocking=True
-        )
-
-    async def handle_close_shutter(call: ServiceCall) -> None:
-        entity_id = call.data["entity_id"]
-        await hass.services.async_call(
-            "cover", "close_cover", {"entity_id": entity_id}, blocking=True
-        )
-
-    async def handle_stop_shutter(call: ServiceCall) -> None:
-        entity_id = call.data["entity_id"]
-        await hass.services.async_call(
-            "cover", "stop_cover", {"entity_id": entity_id}, blocking=True
-        )
-
-    async def handle_set_position(call: ServiceCall) -> None:
-        entity_id = call.data["entity_id"]
-        position = call.data["position"]
-        await hass.services.async_call(
-            "cover",
-            "set_cover_position",
-            {"entity_id": entity_id, "position": position},
-            blocking=True,
-        )
 
     async def handle_open_all(call: ServiceCall) -> None:
         for coordinator in hass.data[DOMAIN].values():
@@ -171,18 +114,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 )
             await coordinator.async_request_refresh()
 
-    hass.services.async_register(
-        DOMAIN, SERVICE_OPEN_SHUTTER, handle_open_shutter, schema=SERVICE_SHUTTER_SCHEMA
-    )
-    hass.services.async_register(
-        DOMAIN, SERVICE_CLOSE_SHUTTER, handle_close_shutter, schema=SERVICE_SHUTTER_SCHEMA
-    )
-    hass.services.async_register(
-        DOMAIN, SERVICE_STOP_SHUTTER, handle_stop_shutter, schema=SERVICE_SHUTTER_SCHEMA
-    )
-    hass.services.async_register(
-        DOMAIN, SERVICE_SET_POSITION, handle_set_position, schema=SERVICE_SET_POSITION_SCHEMA
-    )
     hass.services.async_register(DOMAIN, SERVICE_OPEN_ALL, handle_open_all)
     hass.services.async_register(DOMAIN, SERVICE_CLOSE_ALL, handle_close_all)
     hass.services.async_register(DOMAIN, SERVICE_STOP_ALL, handle_stop_all)
